@@ -25,12 +25,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.music.vivi.LocalPlayerAwareWindowInsets
 import com.music.vivi.R
-import com.music.vivi.blend.SupabaseBlendClient
-import com.music.vivi.ui.utils.backToMain
+import com.music.vivi.blend.BlendRecord
 import com.music.vivi.viewmodels.BlendResult
 import com.music.vivi.viewmodels.BlendViewModel
 import androidx.compose.ui.geometry.Offset
@@ -38,7 +37,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import kotlin.math.min
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,10 +50,13 @@ fun BlendScreen(
     val isSaving by viewModel.isSaving.collectAsState()
     val isJoining by viewModel.isJoining.collectAsState()
     val joinedBlend by viewModel.joinedBlend.collectAsState()
+    val savedBlendCode by viewModel.savedBlendCode.collectAsState()
+    val isGeneratingCode by viewModel.isGeneratingCode.collectAsState()
     val colorScheme = MaterialTheme.colorScheme
 
-    var user1 by remember { mutableStateOf("") }
-    var user2 by remember { mutableStateOf("") }
+    var myDisplayName by remember { mutableStateOf("") }
+    var myCode by remember { mutableStateOf("") }
+    var friendCode by remember { mutableStateOf("") }
     var joinCode by remember { mutableStateOf("") }
 
     Scaffold(
@@ -65,7 +66,7 @@ fun BlendScreen(
                     Column {
                         Text("Blend", fontWeight = FontWeight.Bold)
                         Text(
-                            "Compare your taste with a friend",
+                            "Compare music taste with friends",
                             style = MaterialTheme.typography.labelSmall,
                             color = colorScheme.onSurface.copy(alpha = 0.5f)
                         )
@@ -90,15 +91,28 @@ fun BlendScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                BlendInputCard(
-                    user1 = user1,
-                    user2 = user2,
-                    onUser1Change = { user1 = it },
-                    onUser2Change = { user2 = it },
-                    isLoading = isLoading,
-                    onCreateBlend = { viewModel.createBlend(user1, user2) },
+                GetMyCodeCard(
+                    displayName = myDisplayName,
+                    onDisplayNameChange = { myDisplayName = it },
+                    isGenerating = isGeneratingCode || isSaving,
+                    savedCode = savedBlendCode,
+                    onGetCode = { viewModel.saveToSupabase(myDisplayName) },
                     colorScheme = colorScheme
                 )
+            }
+
+            if (!savedBlendCode.isNullOrBlank()) {
+                item {
+                    CompareCard(
+                        myCode = myCode,
+                        friendCode = friendCode,
+                        onMyCodeChange = { myCode = it.uppercase().take(6) },
+                        onFriendCodeChange = { friendCode = it.uppercase().take(6) },
+                        isLoading = isLoading,
+                        onCompare = { viewModel.createBlendFromCodes(myCode, friendCode) },
+                        colorScheme = colorScheme
+                    )
+                }
             }
 
             if (error != null) {
@@ -124,8 +138,6 @@ fun BlendScreen(
                     ) {
                         BlendResultCard(
                             result = blendResult!!,
-                            isSaving = isSaving,
-                            onSave = { viewModel.saveToSupabase() },
                             colorScheme = colorScheme
                         )
                     }
@@ -137,7 +149,7 @@ fun BlendScreen(
             item {
                 JoinBlendCard(
                     code = joinCode,
-                    onCodeChange = { joinCode = it },
+                    onCodeChange = { joinCode = it.uppercase().take(6) },
                     isJoining = isJoining,
                     onJoin = { viewModel.joinBlend(joinCode) },
                     joinedBlend = joinedBlend,
@@ -151,13 +163,128 @@ fun BlendScreen(
 }
 
 @Composable
-private fun BlendInputCard(
-    user1: String,
-    user2: String,
-    onUser1Change: (String) -> Unit,
-    onUser2Change: (String) -> Unit,
+private fun GetMyCodeCard(
+    displayName: String,
+    onDisplayNameChange: (String) -> Unit,
+    isGenerating: Boolean,
+    savedCode: String?,
+    onGetCode: () -> Unit,
+    colorScheme: ColorScheme
+) {
+    val clipboardManager = LocalClipboardManager.current
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "GET YOUR CODE",
+                style = MaterialTheme.typography.labelMedium,
+                color = colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                letterSpacing = 1.5.sp
+            )
+            Text(
+                text = "Generate a code from your listening history and share it with a friend",
+                style = MaterialTheme.typography.bodySmall,
+                color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+            OutlinedTextField(
+                value = displayName,
+                onValueChange = onDisplayNameChange,
+                label = { Text("Your display name") },
+                leadingIcon = {
+                    Icon(painterResource(R.drawable.person), contentDescription = null)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onGetCode() }),
+                shape = RoundedCornerShape(12.dp)
+            )
+            Button(
+                onClick = onGetCode,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isGenerating && displayName.isNotBlank(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (isGenerating) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = colorScheme.onPrimary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Generating…")
+                } else {
+                    Icon(
+                        painterResource(R.drawable.ios_share),
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Get My Code", fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            if (!savedCode.isNullOrBlank()) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = colorScheme.primaryContainer),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                "YOUR BLEND CODE",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                text = savedCode,
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = colorScheme.onPrimaryContainer,
+                                letterSpacing = 6.sp
+                            )
+                            Text(
+                                "Share this with a friend",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                            )
+                        }
+                        IconButton(
+                            onClick = { clipboardManager.setText(AnnotatedString(savedCode)) }
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.content_copy),
+                                contentDescription = "Copy",
+                                tint = colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompareCard(
+    myCode: String,
+    friendCode: String,
+    onMyCodeChange: (String) -> Unit,
+    onFriendCodeChange: (String) -> Unit,
     isLoading: Boolean,
-    onCreateBlend: () -> Unit,
+    onCompare: () -> Unit,
     colorScheme: ColorScheme
 ) {
     Card(
@@ -170,15 +297,15 @@ private fun BlendInputCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "CREATE A BLEND",
+                text = "COMPARE TASTES",
                 style = MaterialTheme.typography.labelMedium,
                 color = colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 letterSpacing = 1.5.sp
             )
             OutlinedTextField(
-                value = user1,
-                onValueChange = onUser1Change,
-                label = { Text("Your Last.fm username") },
+                value = myCode,
+                onValueChange = onMyCodeChange,
+                label = { Text("Your code") },
                 leadingIcon = {
                     Icon(painterResource(R.drawable.person), contentDescription = null)
                 },
@@ -188,22 +315,22 @@ private fun BlendInputCard(
                 shape = RoundedCornerShape(12.dp)
             )
             OutlinedTextField(
-                value = user2,
-                onValueChange = onUser2Change,
-                label = { Text("Friend's Last.fm username") },
+                value = friendCode,
+                onValueChange = onFriendCodeChange,
+                label = { Text("Friend's code") },
                 leadingIcon = {
                     Icon(painterResource(R.drawable.group_outlined), contentDescription = null)
                 },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onCreateBlend() }),
+                keyboardActions = KeyboardActions(onDone = { onCompare() }),
                 shape = RoundedCornerShape(12.dp)
             )
             Button(
-                onClick = onCreateBlend,
+                onClick = onCompare,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !isLoading && user1.isNotBlank() && user2.isNotBlank(),
+                enabled = !isLoading && myCode.length >= 4 && friendCode.length >= 4,
                 shape = RoundedCornerShape(12.dp)
             ) {
                 if (isLoading) {
@@ -213,9 +340,9 @@ private fun BlendInputCard(
                         color = colorScheme.onPrimary
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Blending…")
+                    Text("Comparing…")
                 } else {
-                    Text("Create Blend", fontWeight = FontWeight.SemiBold)
+                    Text("See Compatibility", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -225,12 +352,8 @@ private fun BlendInputCard(
 @Composable
 private fun BlendResultCard(
     result: BlendResult,
-    isSaving: Boolean,
-    onSave: () -> Unit,
     colorScheme: ColorScheme
 ) {
-    val clipboardManager = LocalClipboardManager.current
-
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
@@ -249,7 +372,9 @@ private fun BlendResultCard(
                 textAlign = TextAlign.Center
             )
 
-            CompatibilityRing(score = result.compatibilityScore, accentColor = colorScheme.primary)
+            if (result.compatibilityScore > 0) {
+                CompatibilityRing(score = result.compatibilityScore, accentColor = colorScheme.primary)
+            }
 
             if (result.sharedArtists.isNotEmpty()) {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -278,76 +403,29 @@ private fun BlendResultCard(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                TopListColumn(
-                    title = result.user1.uppercase(),
-                    items = result.user1Artists.take(5).map { it.name },
-                    modifier = Modifier.weight(1f),
-                    colorScheme = colorScheme
-                )
-                VerticalDivider(modifier = Modifier.height(160.dp))
-                TopListColumn(
-                    title = result.user2.uppercase(),
-                    items = result.user2Artists.take(5).map { it.name },
-                    modifier = Modifier.weight(1f),
-                    colorScheme = colorScheme
-                )
-            }
-
-            if (result.blendCode != null) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                "BLEND CODE",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                            )
-                            Text(
-                                text = result.blendCode,
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = colorScheme.onPrimaryContainer,
-                                letterSpacing = 4.sp
-                            )
-                        }
-                        IconButton(
-                            onClick = { clipboardManager.setText(AnnotatedString(result.blendCode)) }
-                        ) {
-                            Icon(
-                                painterResource(R.drawable.content_copy),
-                                contentDescription = "Copy",
-                                tint = colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-                }
-            } else if (SupabaseBlendClient.isConfigured) {
-                OutlinedButton(
-                    onClick = onSave,
+            if (result.user1Artists.isNotEmpty() || result.user2Artists.isNotEmpty()) {
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = !isSaving
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (isSaving) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Saving…")
-                    } else {
-                        Icon(painterResource(R.drawable.ios_share), contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Share Blend")
+                    if (result.user1Artists.isNotEmpty()) {
+                        TopListColumn(
+                            title = result.user1.uppercase(),
+                            items = result.user1Artists.take(5).map { it.name },
+                            modifier = Modifier.weight(1f),
+                            colorScheme = colorScheme
+                        )
+                    }
+                    if (result.user1Artists.isNotEmpty() && result.user2Artists.isNotEmpty()) {
+                        VerticalDivider(modifier = Modifier.height(160.dp))
+                    }
+                    if (result.user2Artists.isNotEmpty()) {
+                        TopListColumn(
+                            title = result.user2.uppercase(),
+                            items = result.user2Artists.take(5).map { it.name },
+                            modifier = Modifier.weight(1f),
+                            colorScheme = colorScheme
+                        )
                     }
                 }
             }
@@ -363,7 +441,6 @@ private fun CompatibilityRing(score: Int, accentColor: Color) {
         label = "score"
     )
     val sweepAngle = (animatedScore / 100f) * 270f
-
     val ringColor = when {
         score >= 80 -> Color(0xFF4CAF50)
         score >= 60 -> Color(0xFFFF9800)
@@ -371,31 +448,20 @@ private fun CompatibilityRing(score: Int, accentColor: Color) {
         else -> Color(0xFFE57373)
     }
 
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.size(160.dp)
-    ) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(160.dp)) {
         Canvas(modifier = Modifier.size(160.dp)) {
             val strokeWidth = 18.dp.toPx()
             val inset = strokeWidth / 2
             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
             val arcOffset = Offset(inset, inset)
             drawArc(
-                color = ringColor.copy(alpha = 0.12f),
-                startAngle = 135f,
-                sweepAngle = 270f,
-                useCenter = false,
-                topLeft = arcOffset,
-                size = arcSize,
+                color = ringColor.copy(alpha = 0.12f), startAngle = 135f, sweepAngle = 270f,
+                useCenter = false, topLeft = arcOffset, size = arcSize,
                 style = Stroke(strokeWidth, cap = StrokeCap.Round)
             )
             drawArc(
-                color = ringColor,
-                startAngle = 135f,
-                sweepAngle = sweepAngle,
-                useCenter = false,
-                topLeft = arcOffset,
-                size = arcSize,
+                color = ringColor, startAngle = 135f, sweepAngle = sweepAngle,
+                useCenter = false, topLeft = arcOffset, size = arcSize,
                 style = Stroke(strokeWidth, cap = StrokeCap.Round)
             )
         }
@@ -455,7 +521,7 @@ private fun JoinBlendCard(
     onCodeChange: (String) -> Unit,
     isJoining: Boolean,
     onJoin: () -> Unit,
-    joinedBlend: com.music.vivi.blend.BlendRecord?,
+    joinedBlend: BlendRecord?,
     colorScheme: ColorScheme
 ) {
     Card(
@@ -468,10 +534,15 @@ private fun JoinBlendCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "JOIN A BLEND",
+                text = "VIEW SOMEONE'S TASTE",
                 style = MaterialTheme.typography.labelMedium,
                 color = colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 letterSpacing = 1.5.sp
+            )
+            Text(
+                text = "Enter a friend's blend code to see their top artists",
+                style = MaterialTheme.typography.bodySmall,
+                color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -479,7 +550,7 @@ private fun JoinBlendCard(
             ) {
                 OutlinedTextField(
                     value = code,
-                    onValueChange = { onCodeChange(it.uppercase().take(6)) },
+                    onValueChange = onCodeChange,
                     label = { Text("Blend code") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
@@ -493,9 +564,13 @@ private fun JoinBlendCard(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     if (isJoining) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colorScheme.onPrimary)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = colorScheme.onPrimary
+                        )
                     } else {
-                        Text("Join")
+                        Text("View")
                     }
                 }
             }
@@ -503,25 +578,29 @@ private fun JoinBlendCard(
             if (joinedBlend != null) {
                 HorizontalDivider()
                 Text(
-                    text = "${joinedBlend.user1_username}  ×  ${joinedBlend.user2_username}",
+                    text = joinedBlend.user1_username,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Match:", style = MaterialTheme.typography.bodySmall, color = colorScheme.onSurface.copy(alpha = 0.6f))
+                val artists = joinedBlend.user1_top_artists
+                    .split(",")
+                    .filter { it.isNotBlank() }
+                    .take(10)
+                if (artists.isNotEmpty()) {
                     Text(
-                        "${joinedBlend.compatibility_score.toInt()}%",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
+                        text = "TOP ARTISTS",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colorScheme.onSurface.copy(alpha = 0.5f),
+                        letterSpacing = 1.sp
                     )
-                }
-                if (joinedBlend.shared_artists.isNotBlank()) {
-                    Text(
-                        "Shared: ${joinedBlend.shared_artists}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        itemsIndexed(artists) { _, artist ->
+                            SuggestionChip(
+                                onClick = {},
+                                label = { Text(artist, style = MaterialTheme.typography.bodySmall) }
+                            )
+                        }
+                    }
                 }
             }
         }

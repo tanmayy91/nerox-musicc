@@ -2,114 +2,179 @@ package com.music.vivi.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.music.lastfm.LastFM
-import com.music.lastfm.models.LastFmArtist
-import com.music.lastfm.models.LastFmTrack
 import com.music.vivi.blend.BlendRecord
 import com.music.vivi.blend.SupabaseBlendClient
 import com.music.vivi.blend.generateCode
+import com.music.vivi.db.MusicDatabase
+import com.music.vivi.db.entities.Artist
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.Calendar
 import javax.inject.Inject
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+data class LocalArtistEntry(val name: String)
+data class LocalTrackEntry(val name: String, val artistName: String)
+
 data class BlendResult(
     val user1: String,
     val user2: String,
-    val user1Artists: List<LastFmArtist>,
-    val user2Artists: List<LastFmArtist>,
-    val user1Tracks: List<LastFmTrack>,
-    val user2Tracks: List<LastFmTrack>,
+    val user1Artists: List<LocalArtistEntry>,
+    val user2Artists: List<LocalArtistEntry>,
     val sharedArtists: List<String>,
     val compatibilityScore: Int,
     val blendCode: String? = null
 )
 
 @HiltViewModel
-class BlendViewModel @Inject constructor() : ViewModel() {
+class BlendViewModel @Inject constructor(
+    private val database: MusicDatabase
+) : ViewModel() {
 
     val isLoading = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
     val blendResult = MutableStateFlow<BlendResult?>(null)
     val savedBlendCode = MutableStateFlow<String?>(null)
+    val myShareCode = MutableStateFlow<String?>(null)
     val joinedBlend = MutableStateFlow<BlendRecord?>(null)
     val isSaving = MutableStateFlow(false)
     val isJoining = MutableStateFlow(false)
+    val isGeneratingCode = MutableStateFlow(false)
 
-    fun createBlend(user1: String, user2: String) {
+    private fun getYearRange(): Pair<Long, Long> {
+        val year = Calendar.getInstance().get(Calendar.YEAR)
+        val from = Calendar.getInstance().apply {
+            set(year, Calendar.JANUARY, 1, 0, 0, 0)
+        }.timeInMillis
+        val to = Calendar.getInstance().apply {
+            set(year, Calendar.DECEMBER, 31, 23, 59, 59)
+        }.timeInMillis
+        return Pair(from, to)
+    }
+
+    private suspend fun topArtistNames(from: Long, to: Long, limit: Int = 30): List<String> {
+        val raw: List<Artist> = database.mostPlayedArtists(
+            fromTimeStamp = from,
+            limit = limit,
+            toTimeStamp = to
+        ).first()
+        return raw.map { entry -> entry.artist.name }
+    }
+
+    fun generateMyCode(displayName: String) {
+        viewModelScope.launch {
+            isGeneratingCode.value = true
+            error.value = null
+            val name = displayName.trim().ifBlank { "Me" }
+            val (from, to) = getYearRange()
+            val artistNames = topArtistNames(from, to)
+            val code = generateCode()
+            val record = BlendRecord(
+                code = code,
+                user1_username = name,
+                user1_top_artists = artistNames.take(20).joinToString(",")
+            )
+            val saved = SupabaseBlendClient.saveBlend(record)
+            myShareCode.value = saved.getOrNull()?.code ?: code
+            isGeneratingCode.value = false
+        }
+    }
+
+    fun createBlendFromCodes(myCode: String, friendCode: String) {
         viewModelScope.launch {
             isLoading.value = true
             error.value = null
             blendResult.value = null
 
-            val u1 = user1.trim()
-            val u2 = user2.trim()
+            val mc = myCode.trim().uppercase()
+            val fc = friendCode.trim().uppercase()
+            if (mc.isBlank() || fc.isBlank()) {
+                error.value = "Please enter both blend codes"
+                isLoading.value = false
+                return@launch
+            }
+            val myRecordResult = SupabaseBlendClient.fetchBlend(mc)
+            val friendRecordResult = SupabaseBlendClient.fetchBlend(fc)
 
-            if (u1.isBlank() || u2.isBlank()) {
-                error.value = "Please enter both Last.fm usernames"
+            val myRecord = myRecordResult.getOrElse {
+                error.value = "Could not find your blend code: $mc"
+                isLoading.value = false
+                return@launch
+            }
+            val friendRecord = friendRecordResult.getOrElse {
+                error.value = "Could not find friend's blend code: $fc"
                 isLoading.value = false
                 return@launch
             }
 
-            val user1ArtistsResult = LastFM.getUserTopArtists(u1, limit = 30)
-            val user2ArtistsResult = LastFM.getUserTopArtists(u2, limit = 30)
-            val user1TracksResult = LastFM.getUserTopTracks(u1, limit = 20)
-            val user2TracksResult = LastFM.getUserTopTracks(u2, limit = 20)
+            val u1Artists = myRecord.user1_top_artists.split(",").filter { s -> s.isNotBlank() }
+            val u2Artists = friendRecord.user1_top_artists.split(",").filter { s -> s.isNotBlank() }
 
-            val user1Artists = user1ArtistsResult.getOrElse {
-                error.value = "Could not fetch data for '$u1'. Check the username."
-                isLoading.value = false
-                return@launch
-            }
-            val user2Artists = user2ArtistsResult.getOrElse {
-                error.value = "Could not fetch data for '$u2'. Check the username."
-                isLoading.value = false
-                return@launch
-            }
-            val user1Tracks = user1TracksResult.getOrDefault(emptyList())
-            val user2Tracks = user2TracksResult.getOrDefault(emptyList())
+            val u1Set = u1Artists.map { s -> s.lowercase() }.toSet()
+            val u2Set = u2Artists.map { s -> s.lowercase() }.toSet()
+            val shared = u1Set.intersect(u2Set)
+            val sharedNames = u1Artists.filter { s -> s.lowercase() in shared }.take(5)
 
-            val u1Names = user1Artists.map { it.name.lowercase() }.toSet()
-            val u2Names = user2Artists.map { it.name.lowercase() }.toSet()
-            val shared = u1Names.intersect(u2Names)
-            val sharedArtists = user1Artists.filter { it.name.lowercase() in shared }.map { it.name }
-
-            val score = computeCompatibility(user1Artists, user2Artists, user1Tracks, user2Tracks)
+            val score = computeCompatibility(u1Artists, u2Artists)
 
             blendResult.value = BlendResult(
-                user1 = u1,
-                user2 = u2,
-                user1Artists = user1Artists.take(10),
-                user2Artists = user2Artists.take(10),
-                user1Tracks = user1Tracks.take(10),
-                user2Tracks = user2Tracks.take(10),
-                sharedArtists = sharedArtists.take(5),
+                user1 = myRecord.user1_username,
+                user2 = friendRecord.user1_username,
+                user1Artists = u1Artists.take(10).map { s -> LocalArtistEntry(s) },
+                user2Artists = u2Artists.take(10).map { s -> LocalArtistEntry(s) },
+                sharedArtists = sharedNames,
                 compatibilityScore = score
             )
             isLoading.value = false
         }
     }
 
-    fun saveToSupabase() {
-        val result = blendResult.value ?: return
+    fun quickBlend(displayName: String) {
+        viewModelScope.launch {
+            isLoading.value = true
+            error.value = null
+            blendResult.value = null
+
+            val (from, to) = getYearRange()
+            val artistNames = topArtistNames(from, to)
+
+            if (artistNames.isEmpty()) {
+                error.value = "No listening history found. Play some music first!"
+                isLoading.value = false
+                return@launch
+            }
+
+            val name = displayName.trim().ifBlank { "You" }
+            blendResult.value = BlendResult(
+                user1 = name,
+                user2 = "?",
+                user1Artists = artistNames.take(10).map { s -> LocalArtistEntry(s) },
+                user2Artists = emptyList(),
+                sharedArtists = emptyList(),
+                compatibilityScore = 0
+            )
+            isLoading.value = false
+        }
+    }
+
+    fun saveToSupabase(displayName: String) {
         viewModelScope.launch {
             isSaving.value = true
+            val (from, to) = getYearRange()
+            val artistNames = topArtistNames(from, to)
             val code = generateCode()
             val record = BlendRecord(
                 code = code,
-                user1_username = result.user1,
-                user2_username = result.user2,
-                user1_top_artists = result.user1Artists.joinToString(",") { it.name },
-                user2_top_artists = result.user2Artists.joinToString(",") { it.name },
-                compatibility_score = result.compatibilityScore.toFloat(),
-                shared_artists = result.sharedArtists.joinToString(",")
+                user1_username = displayName.trim().ifBlank { "Me" },
+                user1_top_artists = artistNames.take(20).joinToString(",")
             )
             val saved = SupabaseBlendClient.saveBlend(record)
-            savedBlendCode.value = saved.getOrNull()?.code ?: code
-            blendResult.value = result.copy(blendCode = savedBlendCode.value)
+            val finalCode = saved.getOrNull()?.code ?: code
+            savedBlendCode.value = finalCode
+            blendResult.value = blendResult.value?.copy(blendCode = finalCode)
             isSaving.value = false
         }
     }
@@ -127,31 +192,20 @@ class BlendViewModel @Inject constructor() : ViewModel() {
         }
     }
 
-    private fun computeCompatibility(
-        u1Artists: List<LastFmArtist>,
-        u2Artists: List<LastFmArtist>,
-        u1Tracks: List<LastFmTrack>,
-        u2Tracks: List<LastFmTrack>
-    ): Int {
-        val u1ArtistNames = u1Artists.map { it.name.lowercase() }.toSet()
-        val u2ArtistNames = u2Artists.map { it.name.lowercase() }.toSet()
-        val artistOverlap = u1ArtistNames.intersect(u2ArtistNames).size.toFloat()
-        val artistUnion = (u1ArtistNames + u2ArtistNames).size.toFloat()
-        val jaccardArtist = if (artistUnion > 0) artistOverlap / artistUnion else 0f
-
-        val u1TrackNames = u1Tracks.map { "${it.artist.name.lowercase()}:${it.name.lowercase()}" }.toSet()
-        val u2TrackNames = u2Tracks.map { "${it.artist.name.lowercase()}:${it.name.lowercase()}" }.toSet()
-        val trackOverlap = u1TrackNames.intersect(u2TrackNames).size.toFloat()
-        val trackUnion = (u1TrackNames + u2TrackNames).size.toFloat()
-        val jaccardTrack = if (trackUnion > 0) trackOverlap / trackUnion else 0f
+    private fun computeCompatibility(u1Artists: List<String>, u2Artists: List<String>): Int {
+        val u1Set = u1Artists.map { s -> s.lowercase() }.toSet()
+        val u2Set = u2Artists.map { s -> s.lowercase() }.toSet()
+        val overlap = u1Set.intersect(u2Set).size.toFloat()
+        val union = (u1Set + u2Set).size.toFloat()
+        val jaccard = if (union > 0) overlap / union else 0f
 
         val topN = min(u1Artists.size, min(u2Artists.size, 10))
-        val u1Top = u1Artists.take(topN).map { it.name.lowercase() }
-        val u2Top = u2Artists.take(topN).map { it.name.lowercase() }
-        val topNShared = u1Top.count { it in u2Top }.toFloat()
-        val topNScore = if (topN > 0) topNShared / topN else 0f
+        val u1Top = u1Artists.take(topN).map { s -> s.lowercase() }
+        val u2Top = u2Artists.take(topN).map { s -> s.lowercase() }
+        val topShared = u1Top.count { s -> s in u2Top }.toFloat()
+        val topScore = if (topN > 0) topShared / topN else 0f
 
-        val raw = (jaccardArtist * 0.4f + jaccardTrack * 0.2f + topNScore * 0.4f) * 100f
+        val raw = (jaccard * 0.6f + topScore * 0.4f) * 100f
         return (raw * 1.5f).coerceIn(10f, 99f).roundToInt()
     }
 }

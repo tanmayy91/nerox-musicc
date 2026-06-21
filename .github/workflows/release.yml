@@ -1,0 +1,114 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name for the release (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build_release:
+    name: Build & Publish Release APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set Up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+
+      - name: Setup FFTW for Android
+        uses: ./.github/actions/setup-fftw
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Determine tag name
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Build GMS ────────────────────────────────────────────────────
+      - name: Build Universal GMS Release APK
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+        run: |
+          ./gradlew assembleUniversalGmsRelease \
+            --no-configuration-cache --console=plain --warning-mode summary -x lint
+
+      - name: Sign GMS APK
+        id: sign_gms
+        uses: ilharp/sign-android-release@v2.0.0
+        with:
+          releaseDir: app/build/outputs/apk/universalGms/release/
+          signingKey: ${{ secrets.KEYSTORE }}
+          keyAlias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+          buildToolsVersion: 35.0.0
+
+      - name: Rename GMS APK
+        run: |
+          mkdir -p out
+          cp "${{ steps.sign_gms.outputs.signedFile }}" \
+            "out/nerox-music-${{ steps.tag.outputs.name }}-gms.apk"
+
+      # ── Build FOSS ───────────────────────────────────────────────────
+      - name: Build Universal FOSS Release APK
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+        run: |
+          ./gradlew assembleUniversalFossRelease \
+            --no-configuration-cache --console=plain --warning-mode summary -x lint
+
+      - name: Sign FOSS APK
+        id: sign_foss
+        uses: ilharp/sign-android-release@v2.0.0
+        with:
+          releaseDir: app/build/outputs/apk/universalFoss/release/
+          signingKey: ${{ secrets.KEYSTORE }}
+          keyAlias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+          buildToolsVersion: 35.0.0
+
+      - name: Rename FOSS APK
+        run: |
+          cp "${{ steps.sign_foss.outputs.signedFile }}" \
+            "out/nerox-music-${{ steps.tag.outputs.name }}-foss.apk"
+
+      # ── Publish Release ──────────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: "Nerox Music ${{ steps.tag.outputs.name }}"
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.name, 'alpha') || contains(steps.tag.outputs.name, 'beta') || contains(steps.tag.outputs.name, 'rc') }}
+          generate_release_notes: true
+          files: |
+            out/nerox-music-${{ steps.tag.outputs.name }}-gms.apk
+            out/nerox-music-${{ steps.tag.outputs.name }}-foss.apk

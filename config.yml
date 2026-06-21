@@ -1,0 +1,20 @@
+# Nerox Music Configuration
+# Fill in your credentials below and rebuild the app.
+# Leave blank to disable features that require them.
+
+nerox_music:
+
+  # Supabase (required for Blend feature)
+  # Create a free project at https://supabase.com
+  # Then create a table called "blends" with columns:
+  #   id (text, primary key), code (text), user1_username (text),
+  #   user1_top_artists (text), user2_username (text, default ''),
+  #   user2_top_artists (text, default ''), compatibility_score (float, default 0),
+  #   shared_artists (text, default '')
+  supabase_url: "https://feytkqlcmaxkaklufwna.supabase.co"
+  supabase_anon_key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZleXRrcWxjbWF4a2FrbHVmd25hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTkwOTAsImV4cCI6MjA5NzQzNTA5MH0.DynJJQzlaWJCSj1BbTJarh4hEzCzFfZYSrYlQH_iCKo"
+
+  # Last.fm API (used for scrobbling / external stats — optional)
+  # Get keys at https://www.last.fm/api/account/create
+  lastfm_api_key: "11ac10213e724ca72e1e3382bee647dd"
+  lastfm_secret: "7db115cf6dbde455177619c3ec0d2e03"

@@ -7,6 +7,25 @@ val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
+
+fun readConfig(): Map<String, String> {
+    val configFile = rootProject.file("config.yml")
+    if (!configFile.exists()) return emptyMap()
+    return configFile.readLines()
+        .filter { it.contains(":") && !it.trimStart().startsWith("#") }
+        .mapNotNull { line ->
+            val idx = line.indexOf(":")
+            val key = line.substring(0, idx).trim()
+            val value = line.substring(idx + 1).trim()
+                .removeSurrounding("\"")
+                .removeSurrounding("'")
+            if (key.isNotBlank()) key to value else null
+        }
+        .toMap()
+}
+
+val neroxConfig = readConfig()
+
 plugins {
     id("com.android.application")
     alias(libs.plugins.hilt)
@@ -41,8 +60,12 @@ android {
         buildConfigField("String", "LASTFM_API_KEY", "\"$lastFmKey\"")
         buildConfigField("String", "LASTFM_SECRET", "\"$lastFmSecret\"")
 
-        val supabaseUrl = localProperties.getProperty("SUPABASE_URL") ?: System.getenv("SUPABASE_URL") ?: ""
-        val supabaseKey = localProperties.getProperty("SUPABASE_ANON_KEY") ?: System.getenv("SUPABASE_ANON_KEY") ?: ""
+        val supabaseUrl = neroxConfig["supabase_url"]?.takeIf { it.isNotBlank() }
+            ?: localProperties.getProperty("SUPABASE_URL")
+            ?: System.getenv("SUPABASE_URL") ?: ""
+        val supabaseKey = neroxConfig["supabase_anon_key"]?.takeIf { it.isNotBlank() }
+            ?: localProperties.getProperty("SUPABASE_ANON_KEY")
+            ?: System.getenv("SUPABASE_ANON_KEY") ?: ""
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseKey\"")
 

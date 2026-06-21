@@ -541,7 +541,7 @@ class MusicService :
 
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
 
-        audioQuality = dataStore.get(AudioQualityKey).toEnum(com.music.vivi.constants.AudioQuality.AUTO)
+        audioQuality = com.music.vivi.constants.AudioQuality.HIGH
         ipVersion = dataStore.get(IpVersionKey).toEnum(IpVersion.AUTO)
         playerVolume = MutableStateFlow(dataStore.get(PlayerVolumeKey, 1f).coerceIn(0f, 1f))
 
@@ -586,13 +586,11 @@ class MusicService :
             }
         }
 
-        // Watch for audio quality setting changes
+        // Audio quality is locked to HIGH (max quality always on)
         var isFirstQualityEmit = true
         scope.launch {
             dataStore.data
-                .map { it[AudioQualityKey]?.let { value ->
-                    com.music.vivi.constants.AudioQuality.entries.find { it.name == value }
-                } ?: com.music.vivi.constants.AudioQuality.AUTO }
+                .map { com.music.vivi.constants.AudioQuality.HIGH }
                 .distinctUntilChanged()
                 .collect { newQuality ->
                     val oldQuality = audioQuality
