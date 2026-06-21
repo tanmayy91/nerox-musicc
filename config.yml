@@ -11,8 +11,8 @@ nerox_music:
   #   user1_top_artists (text), user2_username (text, default ''),
   #   user2_top_artists (text, default ''), compatibility_score (float, default 0),
   #   shared_artists (text, default '')
-  supabase_url: ""
-  supabase_anon_key: ""
+  supabase_url: "https://feytkqlcmaxkaklufwna.supabase.co"
+  supabase_anon_key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZleXRrcWxjbWF4a2FrbHVmd25hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTkwOTAsImV4cCI6MjA5NzQzNTA5MH0.DynJJQzlaWJCSj1BbTJarh4hEzCzFfZYSrYlQH_iCKo"
 
   # Last.fm API (used for scrobbling / external stats — optional)
   # Get keys at https://www.last.fm/api/account/create
