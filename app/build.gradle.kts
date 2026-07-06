@@ -36,12 +36,12 @@ plugins {
 }
 
 android {
-    namespace = "com.music.vivi"
+    namespace = "com.music.nerox"
     compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     defaultConfig {
-        applicationId = "com.vivi.vivimusic"
+        applicationId = "com.nerox.neroxmusic"
         minSdk = 26
         targetSdk = 36
         versionCode = 71
