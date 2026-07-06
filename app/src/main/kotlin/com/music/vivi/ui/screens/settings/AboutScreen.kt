@@ -192,22 +192,21 @@ fun AboutScreen(
                 )
             )
         )
-//        Spacer(modifier = Modifier.height(27.dp))
-//
-//        // Collaborator Section
-//        Material3SettingsGroup(
-//            title = stringResource(R.string.collaborator_section),
-//            items = listOf(
-//                Material3SettingsItem(
-//                    icon = painterResource(R.drawable.collab),
-//                    title = { Text(stringResource(R.string.collaborator_tboyke)) },
-//                    description = { Text(stringResource(R.string.collaborator_role)) },
-//                    tintIcon = false,
-//                    iconShape = cloverShape,
-//                    onClick = { uriHandler.safeOpenUri(context, "https://github.com/T-Boyke") }
-//                )
-//            )
-//        )
+        Spacer(modifier = Modifier.height(27.dp))
+
+        // UI Designer Section
+        Material3SettingsGroup(
+            title = stringResource(R.string.collaborator_section),
+            items = listOf(
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.collab),
+                    title = { Text(stringResource(R.string.collaborator_tboyke)) },
+                    description = { Text(stringResource(R.string.collaborator_role), color = MaterialTheme.colorScheme.secondary) },
+                    tintIcon = false,
+                    iconShape = cloverShape,
+                )
+            )
+        )
         Spacer(modifier = Modifier.height(27.dp))
 
         // Community Section

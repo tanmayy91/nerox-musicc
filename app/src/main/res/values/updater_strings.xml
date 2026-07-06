@@ -55,14 +55,14 @@
 
     <string name="vivi_music_title">NEROX MUSIC</string>
     <string name="developer_section">DEVELOPER</string>
-    <string name="collaborator_section">COLLABORATOR</string>
+    <string name="collaborator_section">UI DESIGNER</string>
     <string name="app_info_section">APP INFO</string>
     <string name="community_section">COMMUNITY</string>
     <string name="developer_name">TANMAY</string>
     <string name="app_developer">Lead Developer</string>
     <string name="website">Website</string>
-    <string name="collaborator_tboyke">T-Boyke</string>
-    <string name="collaborator_role">Collaborator</string>
+    <string name="collaborator_tboyke">AYAAN</string>
+    <string name="collaborator_role">UI Designer</string>
     <string name="installed_date_title">Installed Date</string>
     <string name="view_version_history">View version history</string>
     <string name="github_repository">GitHub Repository</string>
