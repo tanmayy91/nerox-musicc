@@ -992,7 +992,7 @@ class MusicService :
                     .setBufferDurationsMs(
                         /* minBufferMs              = */ 15_000,  // min buffer before playback starts (was 50s default)
                         /* maxBufferMs              = */ 60_000,  // buffer up to 60s ahead
-                        /* bufferForPlaybackMs      = */ 1_200,   // only 1.2s needed to start fresh (was 2.5s)
+                        /* bufferForPlaybackMs      = */ 1_500,   // 1.5s to start playback from scratch (was 2.5s default)
                         /* bufferForPlaybackAfterRebufferMs = */ 3_000  // 3s to resume after stall (was 5s)
                     )
                     .setPrioritizeTimeOverSizeThresholds(true)
