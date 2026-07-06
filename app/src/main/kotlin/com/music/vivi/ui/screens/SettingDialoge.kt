@@ -117,7 +117,7 @@ fun SettingDialoge(
                     
                     Text(
                         modifier = Modifier.wrapContentWidth(),
-                        text = "VIVI MUSIC",
+                        text = "NEROX MUSIC",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp

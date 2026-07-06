@@ -1,6 +1,6 @@
-# 🤝 Contributing to Vivi Music
+# 🤝 Contributing to Nerox Music
 
-Thank you for your interest in contributing to **Vivi Music Enterprise Edition**.
+Thank you for your interest in contributing to **Nerox Music Enterprise Edition**.
 
 > [!IMPORTANT]
 > This project follows strict engineering standards. Before writing code, you **MUST** read our [Technical Manual](../docs/Technical_Manual.md). It is the **Single Source of Truth** for architecture and workflows.

@@ -1,9 +1,9 @@
 <div align="center">
   <a href="https://vivimusic.mkmdevilmi.workers.dev/">
-    <img src="assets/banner.png" alt="VIVI Music Banner" style="display: block; margin: 0 auto; max-width: 100%"/>
+    <img src="assets/banner.png" alt="Nerox Music Banner" style="display: block; margin: 0 auto; max-width: 100%"/>
   </a>
   <br>
-  <h1>VIVI Music</h1>
+  <h1>Nerox Music</h1>
   <h3>More Than Just Music — Your Ultimate Audio Experience</h3>
 
   <p>
@@ -158,7 +158,7 @@
     <tr>
       <td align="center">
         <h3>💖 Support the Project</h3>
-        <p>If you love VIVI Music and want to support its maintenance and active development, please consider buying me a coffee! Your support helps keep this premium audio experience completely active, clean, and ad-free.</p>
+        <p>If you love Nerox Music and want to support its maintenance and active development, please consider buying me a coffee! Your support helps keep this premium audio experience completely active, clean, and ad-free.</p>
         <br>
         <a href="https://ko-fi.com/vividhpashokan">
           <img src="https://img.shields.io/badge/Support-Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Support on Ko-fi">
@@ -174,7 +174,7 @@
 
 <h2>🚗 Android Auto Setup</h2>
 
-<p>If VIVI Music doesn't appear in Android Auto:</p>
+<p>If Nerox Music doesn't appear in Android Auto:</p>
 
 <ol>
   <li>Open <strong>Android Auto</strong> on your phone</li>
@@ -204,7 +204,7 @@
 
 <h2>🛡️ Privacy & Data Collection</h2>
 
-<p>At <strong>VIVI Music</strong>, your privacy is our top priority. We believe that your music and data belong exclusively to you.</p>
+<p>At <strong>Nerox Music</strong>, your privacy is our top priority. We believe that your music and data belong exclusively to you.</p>
 
 <ul>
   <li><strong>Zero Data Collection:</strong> We do <strong>not</strong> collect, store, or share any of your personal information, usage habits, or listening history.</li>
@@ -222,7 +222,7 @@
 
 <p>Any trademark, service mark, trade name, or other intellectual property rights used in this project are owned by their respective owners.</p>
 
-<p><strong>VIVI Music</strong> is an independent project created for educational and personal use purposes.</p>
+<p><strong>Nerox Music</strong> is an independent project created for educational and personal use purposes.</p>
 
 <hr>
 
@@ -258,7 +258,7 @@
 
   <h2>🙏 Special Thanks & Credits</h2>
 
-  <p>VIVI Music is built upon the foundation of amazing open-source projects and developers:</p>
+  <p>Nerox Music is built upon the foundation of amazing open-source projects and developers:</p>
   <br>
 
   <table border="0" cellpadding="10" cellspacing="0" width="90%">
@@ -286,5 +286,5 @@
   <p align="center"><strong>Thank you to all the amazing developers who made this project possible!</strong></p>
   <hr width="60%">
   <p align="center"><strong>Made with ❤️ for music lovers everywhere</strong></p>
-  <p align="center">⭐ Star this repo if you enjoy VIVI Music!</p>
+  <p align="center">⭐ Star this repo if you enjoy Nerox Music!</p>
 </div>

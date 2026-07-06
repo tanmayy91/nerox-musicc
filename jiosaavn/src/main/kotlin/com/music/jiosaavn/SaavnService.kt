@@ -122,7 +122,7 @@ object SaavnService {
             defaultRequest {
                 url(BASE_URL)
                 headers.append(HttpHeaders.Accept, "application/json")
-                headers.append(HttpHeaders.UserAgent, "ViviMusic/1.0")
+                headers.append(HttpHeaders.UserAgent, "NeroxMusic/1.0")
             }
             expectSuccess = false
         }
