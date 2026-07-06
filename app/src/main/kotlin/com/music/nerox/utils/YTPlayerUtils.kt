@@ -54,6 +54,10 @@ import java.net.URI
 import java.io.IOException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicInteger
 
 object YTPlayerUtils {
     private const val logTag = "YTPlayerUtils"
@@ -83,8 +87,8 @@ object YTPlayerUtils {
                     .build()
             } ?: response.request
         }
-        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)   // was 15 s — caps validation cost
+        .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)        // was 15 s
         .build()
 
     private val poTokenGenerator = PoTokenGenerator()
@@ -116,6 +120,23 @@ object YTPlayerUtils {
         IOS,
         WEB,
         WEB_CREATOR
+    )
+
+    /**
+     * Clients that return direct CDN URLs — no HTTP round-trip needed to validate them.
+     * Calling validateStatus() on these URLs adds 15-30 s of blocking overhead for nothing.
+     */
+    private val DIRECT_URL_CLIENTS = setOf(
+        ANDROID_VR_1_43_32, ANDROID_VR_1_61_48, ANDROID_VR_NO_AUTH,
+        IOS, IPADOS, ANDROID_CREATOR
+    )
+
+    /**
+     * Top 3 fastest clients to race in parallel when the main client has no usable stream.
+     * Whichever answers first wins; the others are cancelled.
+     */
+    private val PARALLEL_FALLBACK_CLIENTS = arrayOf(
+        ANDROID_VR_1_61_48, IOS, TVHTML5_SIMPLY_EMBEDDED_PLAYER
     )
     data class PlaybackData(
         val audioConfig: PlayerResponse.PlayerConfig.AudioConfig?,
@@ -337,6 +358,82 @@ object YTPlayerUtils {
         return firstAttempt
     }
 
+    // ── Parallel-race helpers ──────────────────────────────────────────────────
+
+    /**
+     * Attempt a single client with an 8-second hard timeout.
+     * Returns [PlaybackData] on success, null on any failure or timeout.
+     * No HTTP validation — these clients always return direct CDN URLs.
+     */
+    private suspend fun tryClientFast(
+        client: YouTubeClient,
+        videoId: String,
+        playlistId: String?,
+        signatureTimestamp: SignatureTimestampResult,
+        audioQuality: AudioQuality,
+        connectivityManager: ConnectivityManager,
+    ): PlaybackData? = withTimeoutOrNull(8_000L) {
+        try {
+            val response = YouTube.player(
+                videoId, playlistId, client,
+                signatureTimestamp.timestamp,
+                null, // no PoToken for fast parallel path
+            ).getOrNull() ?: return@withTimeoutOrNull null
+
+            if (response.playabilityStatus.status != "OK") return@withTimeoutOrNull null
+
+            val fmt     = findFormat(response, audioQuality, connectivityManager) ?: return@withTimeoutOrNull null
+            val url     = findUrlOrNull(fmt, videoId, response)                   ?: return@withTimeoutOrNull null
+            val expires = response.streamingData?.expiresInSeconds                 ?: return@withTimeoutOrNull null
+
+            Timber.tag(TAG).i("Parallel client ${client.clientName} won for videoId=$videoId")
+            PlaybackData(
+                audioConfig            = response.playerConfig?.audioConfig,
+                videoDetails           = response.videoDetails,
+                playbackTracking       = response.playbackTracking,
+                format                 = fmt,
+                streamUrl              = url,
+                streamExpiresInSeconds = expires,
+            )
+        } catch (e: Exception) {
+            Timber.tag(TAG).w("Parallel client ${client.clientName} failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Race [PARALLEL_FALLBACK_CLIENTS] simultaneously.
+     * Returns the first [PlaybackData] that succeeds, or null if all fail / timeout.
+     * Remaining in-flight requests are cancelled as soon as a winner is found.
+     */
+    private suspend fun raceParallelClients(
+        videoId: String,
+        playlistId: String?,
+        signatureTimestamp: SignatureTimestampResult,
+        audioQuality: AudioQuality,
+        connectivityManager: ConnectivityManager,
+    ): PlaybackData? = coroutineScope {
+        val winner    = kotlinx.coroutines.CompletableDeferred<PlaybackData>()
+        val remaining = AtomicInteger(PARALLEL_FALLBACK_CLIENTS.size)
+
+        val jobs = PARALLEL_FALLBACK_CLIENTS.map { client ->
+            launch(Dispatchers.IO) {
+                val data = tryClientFast(client, videoId, playlistId, signatureTimestamp, audioQuality, connectivityManager)
+                if (data != null) {
+                    winner.complete(data)          // only first complete() takes effect
+                } else if (remaining.decrementAndGet() == 0) {
+                    winner.completeExceptionally(Exception("All parallel clients failed"))
+                }
+            }
+        }
+
+        val result = try { winner.await() } catch (_: Exception) { null }
+        jobs.forEach { it.cancel() }
+        result
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+
     private suspend fun resolvePlaybackData(
         videoId: String,
         playlistId: String? = null,
@@ -480,6 +577,45 @@ object YTPlayerUtils {
         // Check if this is a privately owned track (uploaded song)
         val isPrivateTrack = mainPlayerResponse.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
 
+        // ── FAST PATH ─────────────────────────────────────────────────────────────
+        // ANDROID_VR always returns direct CDN URLs when status is OK.
+        // validateStatus() on those URLs costs 15-30 s of blocking HTTP overhead
+        // for zero benefit — the URL is already guaranteed to work.
+        // Skip straight to playback for normal (non-age-restricted, non-private) songs.
+        if (!isAgeRestricted && !isPrivateTrack &&
+            mainPlayerResponse.playabilityStatus.status == "OK"
+        ) {
+            val fastFormat = findFormat(mainPlayerResponse, audioQuality, connectivityManager)
+            val fastUrl   = fastFormat?.let { findUrlOrNull(it, videoId, mainPlayerResponse) }
+            val fastExpires = mainPlayerResponse.streamingData?.expiresInSeconds
+            if (fastFormat != null && fastUrl != null && fastExpires != null) {
+                Timber.tag(TAG).i("Fast-path: stream via ${MAIN_CLIENT.clientName} (no validation) videoId=$videoId")
+                Log.i(TAG, "Fast-path: ${MAIN_CLIENT.clientName}, videoId=$videoId")
+                return@runCatching PlaybackData(
+                    audioConfig            = audioConfig,
+                    videoDetails           = videoDetails,
+                    playbackTracking       = playbackTracking,
+                    format                 = fastFormat,
+                    streamUrl              = fastUrl,
+                    streamExpiresInSeconds = fastExpires,
+                )
+            }
+        }
+
+        // ── PARALLEL RACE ─────────────────────────────────────────────────────────
+        // Main client had no usable streaming data (uncommon).
+        // Race the next 3 fastest clients simultaneously so the first success wins.
+        if (!isAgeRestricted && !isPrivateTrack) {
+            val parallelResult = raceParallelClients(
+                videoId, playlistId, signatureTimestamp, audioQuality, connectivityManager
+            )
+            if (parallelResult != null) {
+                Timber.tag(TAG).i("Parallel-race winner found, videoId=$videoId")
+                return@runCatching parallelResult
+            }
+        }
+        // ──────────────────────────────────────────────────────────────────────────
+
         // For private tracks: use TVHTML5 (index 1) with PoToken + n-transform
         // For age-restricted: skip main client, start with fallbacks
         // For normal content: standard order
@@ -616,15 +752,23 @@ object YTPlayerUtils {
                 // Check if this is a privately owned track (uploaded song)
                 val isPrivatelyOwned = streamPlayerResponse.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
 
-                if (clientIndex == STREAM_FALLBACK_CLIENTS.size - 1 || isPrivatelyOwned) {
-                    /** skip [validateStatus] for last client or private tracks */
-                    if (isPrivatelyOwned) {
-                        Timber.tag(logTag).d("Skipping validation for privately owned track: ${currentClient.clientName}")
-                        println("[PLAYBACK_DEBUG] Using stream without validation for PRIVATELY_OWNED_TRACK")
-                    } else {
-                        Timber.tag(logTag).d("Using last fallback client without validation: ${STREAM_FALLBACK_CLIENTS[clientIndex].clientName}")
+                // Skip HTTP validation for:
+                //  • direct-URL clients (ANDROID_VR, iOS, etc.) — their URLs always work
+                //  • private / uploaded tracks — they skip validation anyway
+                //  • the last fallback client — nothing left to try
+                val isDirectUrlClient = currentClient in DIRECT_URL_CLIENTS
+                if (isDirectUrlClient || clientIndex == STREAM_FALLBACK_CLIENTS.size - 1 || isPrivatelyOwned) {
+                    when {
+                        isDirectUrlClient ->
+                            Timber.tag(logTag).d("Skipping validation for direct-URL client: ${currentClient.clientName}")
+                        isPrivatelyOwned -> {
+                            Timber.tag(logTag).d("Skipping validation for privately owned track: ${currentClient.clientName}")
+                            println("[PLAYBACK_DEBUG] Using stream without validation for PRIVATELY_OWNED_TRACK")
+                        }
+                        else ->
+                            Timber.tag(logTag).d("Using last fallback client without validation: ${STREAM_FALLBACK_CLIENTS[clientIndex].clientName}")
                     }
-                    Log.i(TAG, "Playback: client=${currentClient.clientName}, videoId=$videoId, private=$isPrivatelyOwned")
+                    Log.i(TAG, "Playback: client=${currentClient.clientName}, videoId=$videoId, direct=$isDirectUrlClient, private=$isPrivatelyOwned")
                     break
                 }
 
