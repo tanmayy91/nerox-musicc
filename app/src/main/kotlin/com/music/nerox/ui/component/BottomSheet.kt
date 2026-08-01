@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
@@ -78,6 +79,10 @@ fun BottomSheet(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .liquidGlass(
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                baseColor = MaterialTheme.colorScheme.surfaceContainer
+            )
             // Use graphicsLayer for offset to ensure hardware acceleration and 120Hz support
             .graphicsLayer {
                 val y = (state.expandedBound - state.value)

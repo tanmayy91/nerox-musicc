@@ -42,8 +42,10 @@ fun NavigationTile(
             modifier =
             Modifier
                 .size(56.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .liquidGlass(
+                    shape = CircleShape,
+                    baseColor = MaterialTheme.colorScheme.surfaceContainer
+                )
                 .clickable(onClick = onClick),
         ) {
             Icon(

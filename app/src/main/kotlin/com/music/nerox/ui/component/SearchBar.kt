@@ -125,6 +125,12 @@ fun TopSearch(
                     trailingIcon()
                 }
             },
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .liquidGlass(
+                    shape = RoundedCornerShape(24.dp),
+                    baseColor = MaterialTheme.colorScheme.surfaceContainerLow
+                ),
             colors = colors,
             scrollBehavior = scrollBehavior,
             windowInsets = windowInsets
