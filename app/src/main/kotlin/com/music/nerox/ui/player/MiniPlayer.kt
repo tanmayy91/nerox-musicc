@@ -136,15 +136,7 @@ import com.music.nerox.vivimusic.isBluetoothHeadphoneConnected
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Speaker
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
-import kotlin.math.roundToInt
 import com.music.nerox.ui.component.Icon as MIcon
 
 /**
@@ -161,6 +153,41 @@ class ProgressState(
             val duration = durationState.longValue
             return if (duration > 0) (positionState.longValue.toFloat() / duration).coerceIn(0f, 1f) else 0f
         }
+
+        private fun Modifier.liquidGlassSurface(
+            baseColor: Color,
+            shape: RoundedCornerShape
+        ): Modifier = this
+            .clip(shape)
+            .background(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.20f),
+                        baseColor.copy(alpha = 0.82f),
+                        baseColor.copy(alpha = 0.68f)
+                    ),
+                    start = Offset.Zero,
+                    end = Offset(1200f, 1200f)
+                )
+            )
+            .drawWithCache {
+                val glossTopRight = Brush.radialGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.18f), Color.Transparent),
+                    center = Offset(size.width * 0.85f, size.height * 0.1f),
+                    radius = size.maxDimension * 0.8f
+                )
+                val glossBottomLeft = Brush.radialGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.10f), Color.Transparent),
+                    center = Offset(size.width * 0.15f, size.height * 0.9f),
+                    radius = size.maxDimension * 0.6f
+                )
+                onDrawWithContent {
+                    drawContent()
+                    drawRect(glossTopRight)
+                    drawRect(glossBottomLeft)
+                }
+            }
+            .border(1.dp, Color.White.copy(alpha = 0.24f), shape)
 }
 
 @Composable
@@ -344,14 +371,16 @@ private fun NewMiniPlayer(
                 } else baseModifier
             }
     ) {
+        val glassShape = RoundedCornerShape(32.dp)
         Box(
             modifier = Modifier
                 .then(if (isTabletLandscape) Modifier.width(500.dp).align(Alignment.Center) else Modifier.fillMaxWidth())
                 .height(64.dp)
                 .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
-                .clip(RoundedCornerShape(32.dp))
-                .background(color = backgroundColor)
-                .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp))
+                .liquidGlassSurface(
+                    baseColor = backgroundColor,
+                    shape = glassShape
+                )
         ) {
             // Background Layers
             MiniPlayerBackgroundLayer(

@@ -28,7 +28,7 @@ val neroxConfig = readConfig()
 
 plugins {
     id("com.android.application")
-    alias(libs.plugins.hilt)
+    id("dagger.hilt.android.plugin")
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.serialization)
@@ -50,12 +50,13 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 
-        // LastFM API keys from GitHub Secrets
-//        val lastFmKey = localProperties.getProperty("LASTFM_API_KEY") ?: System.getenv("LASTFM_API_KEY") ?: ""
-//        val lastFmSecret = localProperties.getProperty("LASTFM_SECRET") ?: System.getenv("LASTFM_SECRET") ?: ""
-        
-        val lastFmKey = "11ac10213e724ca72e1e3382bee647dd"
-        val lastFmSecret = "7db115cf6dbde455177619c3ec0d2e03"
+        // LastFM API keys from local properties or environment
+        val lastFmKey = neroxConfig["lastfm_api_key"]?.takeIf { it.isNotBlank() }
+            ?: localProperties.getProperty("LASTFM_API_KEY")
+            ?: System.getenv("LASTFM_API_KEY") ?: ""
+        val lastFmSecret = neroxConfig["lastfm_secret"]?.takeIf { it.isNotBlank() }
+            ?: localProperties.getProperty("LASTFM_SECRET")
+            ?: System.getenv("LASTFM_SECRET") ?: ""
 
         buildConfigField("String", "LASTFM_API_KEY", "\"$lastFmKey\"")
         buildConfigField("String", "LASTFM_SECRET", "\"$lastFmSecret\"")
@@ -332,4 +333,3 @@ dependencies {
     implementation(libs.work.runtime.ktx)
     implementation(libs.androidx.core.splashscreen)
 }
-
