@@ -28,7 +28,7 @@ val neroxConfig = readConfig()
 
 plugins {
     id("com.android.application")
-    id("dagger.hilt.android.plugin")
+    alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.serialization)
@@ -37,13 +37,13 @@ plugins {
 
 android {
     namespace = "com.music.nerox"
-    compileSdk = 36
+    compileSdk = 37
     ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.nerox.neroxmusic"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 72
         versionName = "7.0.0"
 
