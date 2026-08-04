@@ -332,7 +332,7 @@ fun TrendingAppleMusicSection(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TopArtistsSection(
     artists: List<SuggestionArtist>,
@@ -384,6 +384,7 @@ fun TopArtistsSection(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrendingAlbumsSection(
     albums: List<SuggestionAlbum>,
