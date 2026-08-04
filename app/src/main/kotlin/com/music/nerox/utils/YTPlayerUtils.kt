@@ -351,12 +351,65 @@ object YTPlayerUtils {
             BotDetectionMitigator.rotateGuestSession()
             val retryResult = resolvePlaybackData(videoId, playlistId, audioQuality, connectivityManager)
             retryResult.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
+            if (retryResult.isSuccess) return retryResult
+
+            // ── v3: Piped API fallback (last resort — guest path) ────────────────
+            Timber.tag(TAG).w("[v3] All YT clients exhausted (guest) — attempting Piped API fallback for videoId=$videoId")
+            PlaybackLogManager.log(PlaybackLogLevel.WARNING, "[v3] Piped fallback attempt", videoId)
+            val pipedStream = PipedStreamFallback.getStreamUrl(videoId)
+            if (pipedStream != null) {
+                Timber.tag(TAG).i("[v3] Piped fallback succeeded for videoId=$videoId (bitrate=${pipedStream.second}bps)")
+                PlaybackLogManager.log(PlaybackLogLevel.INFO, "[v3] Piped fallback succeeded", videoId)
+                return Result.success(buildPipedPlaybackData(pipedStream.first, pipedStream.second))
+            }
             return retryResult
         }
-        
+
+        // ── v3: Piped API fallback (authenticated path) ──────────────────────────
+        if (firstAttempt.isFailure) {
+            Timber.tag(TAG).w("[v3] All YT clients exhausted (auth) — attempting Piped API fallback for videoId=$videoId")
+            val pipedStream = PipedStreamFallback.getStreamUrl(videoId)
+            if (pipedStream != null) {
+                Timber.tag(TAG).i("[v3] Piped fallback succeeded (auth) for videoId=$videoId")
+                return Result.success(buildPipedPlaybackData(pipedStream.first, pipedStream.second))
+            }
+        }
+
         firstAttempt.onSuccess { BotDetectionMitigator.notifyPlaybackSuccess() }
         return firstAttempt
     }
+
+    /** v3: Constructs a minimal [PlaybackData] from a raw Piped stream URL. */
+    private fun buildPipedPlaybackData(url: String, bitrate: Int): PlaybackData =
+        PlaybackData(
+            audioConfig            = null,
+            videoDetails           = null,
+            playbackTracking       = null,
+            format                 = PlayerResponse.StreamingData.Format(
+                itag             = 251,
+                url              = url,
+                mimeType         = "audio/webm; codecs=\"opus\"",
+                bitrate          = bitrate,
+                width            = null,
+                height           = null,
+                contentLength    = null,
+                quality          = "high",
+                fps              = null,
+                qualityLabel     = null,
+                averageBitrate   = bitrate,
+                audioQuality     = "AUDIO_QUALITY_HIGH",
+                approxDurationMs = null,
+                audioSampleRate  = null,
+                audioChannels    = 2,
+                loudnessDb       = null,
+                lastModified     = null,
+                signatureCipher  = null,
+                cipher           = null,
+                audioTrack       = null,
+            ),
+            streamUrl              = url,
+            streamExpiresInSeconds = 3600,
+        )
 
     // ── Parallel-race helpers ──────────────────────────────────────────────────
 
@@ -893,11 +946,18 @@ object YTPlayerUtils {
     ): PlayerResponse.StreamingData.Format? {
         Timber.tag(logTag).d("Finding format with audioQuality: $audioQuality, network metered: ${connectivityManager.isActiveNetworkMetered}")
 
-        val format = playerResponse.streamingData?.adaptiveFormats
-            ?.filter { it.isAudio && it.isOriginal }
-            ?.maxByOrNull {
-                it.bitrate + (if (it.mimeType.startsWith("audio/webm")) 10240 else 0)
-            }
+        // v3: Try original (non-dubbed) audio first; fall back to any audio if none available.
+        // OPUS/webm gets a +10 240 bps score boost — same-bitrate OPUS beats AAC (higher
+        // perceptual quality per bit). The boost is intentionally small so a 256 kbps AAC
+        // still wins over a 128 kbps OPUS stream.
+        val originals = playerResponse.streamingData?.adaptiveFormats
+            ?.filter { it.isAudio && it.isOriginal } ?: emptyList()
+        val candidates = originals.ifEmpty {
+            playerResponse.streamingData?.adaptiveFormats?.filter { it.isAudio } ?: emptyList()
+        }
+        val format = candidates.maxByOrNull {
+            it.bitrate + (if (it.mimeType.startsWith("audio/webm")) 10_240 else 0)
+        }
 
         if (format != null) {
             Timber.tag(logTag).d("Selected format: ${format.mimeType}, bitrate: ${format.bitrate}")

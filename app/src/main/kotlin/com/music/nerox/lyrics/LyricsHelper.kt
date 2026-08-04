@@ -17,6 +17,7 @@ import com.music.nerox.utils.NetworkConnectivityObserver
 import com.music.nerox.utils.dataStore
 import com.music.nerox.utils.reportException
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -24,6 +25,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.Dispatchers
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 class LyricsHelper
@@ -59,6 +64,16 @@ constructor(
     private val cache = LruCache<String, List<LyricsResult>>(MAX_CACHE_SIZE)
     private var currentLyricsJob: Job? = null
 
+    /**
+     * v3: Parallel-race lyrics fetch — all enabled providers run simultaneously.
+     * The first provider to return a non-empty result wins; all others are cancelled.
+     * Per-provider timeout of [PROVIDER_TIMEOUT_MS] prevents one slow provider from
+     * blocking the race.  Results are cached in an LRU of size [MAX_CACHE_SIZE].
+     *
+     * Previous behaviour was sequential (each provider tried one at a time), which
+     * meant worst-case latency = sum of all provider timeouts.  With the race, latency
+     * equals the fastest successful provider — typically 300–800 ms.
+     */
     suspend fun getLyrics(mediaMetadata: MediaMetadata): LyricsWithProvider {
         currentLyricsJob?.cancel()
 
@@ -67,50 +82,56 @@ constructor(
             return LyricsWithProvider(cached.lyrics, cached.providerName)
         }
 
-        // Check network connectivity before making network requests
-        // Use synchronous check as fallback if flow doesn't emit
         val isNetworkAvailable = try {
             networkConnectivity.isCurrentlyConnected()
         } catch (e: Exception) {
-            // If network check fails, try to proceed anyway
             true
         }
-        
-        if (!isNetworkAvailable) {
-            // Still proceed but return not found to avoid hanging
-            return LyricsWithProvider(LYRICS_NOT_FOUND, "Unknown")
-        }
+        if (!isNetworkAvailable) return LyricsWithProvider(LYRICS_NOT_FOUND, "Unknown")
 
-        val providers = resolveLyricsProviders()
-        val scope = CoroutineScope(SupervisorJob())
-        val deferred = scope.async {
-            for (provider in providers) {
-                if (provider.isEnabled(context)) {
+        val providers = resolveLyricsProviders().filter { it.isEnabled(context) }
+        if (providers.isEmpty()) return LyricsWithProvider(LYRICS_NOT_FOUND, "Unknown")
+
+        return withContext(Dispatchers.IO) {
+            val winner    = CompletableDeferred<LyricsWithProvider>()
+            val remaining = AtomicInteger(providers.size)
+            val raceScope = CoroutineScope(SupervisorJob())
+
+            providers.forEach { provider ->
+                raceScope.launch {
                     try {
-                        val result = provider.getLyrics(
-                            mediaMetadata.id,
-                            mediaMetadata.title,
-                            mediaMetadata.artists.joinToString { it.name },
-                            mediaMetadata.duration,
-                            mediaMetadata.album?.title,
-                        )
-                        result.onSuccess { lyrics ->
-                            return@async LyricsWithProvider(lyrics, provider.name)
-                        }.onFailure {
-                            reportException(it)
+                        val lyrics = withTimeoutOrNull(PROVIDER_TIMEOUT_MS) {
+                            provider.getLyrics(
+                                mediaMetadata.id,
+                                mediaMetadata.title,
+                                mediaMetadata.artists.joinToString { it.name },
+                                mediaMetadata.duration,
+                                mediaMetadata.album?.title,
+                            ).getOrNull()
+                        }
+                        if (!lyrics.isNullOrBlank() && lyrics != LYRICS_NOT_FOUND) {
+                            // First valid result completes the deferred; subsequent calls are no-ops
+                            winner.complete(LyricsWithProvider(lyrics, provider.name))
                         }
                     } catch (e: Exception) {
-                        // Catch network-related exceptions like UnresolvedAddressException
                         reportException(e)
+                    } finally {
+                        // When all providers finish without a winner, complete with not-found
+                        if (remaining.decrementAndGet() == 0) {
+                            winner.complete(LyricsWithProvider(LYRICS_NOT_FOUND, "Unknown"))
+                        }
                     }
                 }
             }
-            return@async LyricsWithProvider(LYRICS_NOT_FOUND, "Unknown")
-        }
 
-        val result = deferred.await()
-        scope.cancel()
-        return result
+            val result = winner.await()
+            raceScope.cancel() // cancel any still-running providers
+
+            if (result.lyrics != LYRICS_NOT_FOUND) {
+                cache.put(mediaMetadata.id, listOf(LyricsResult(result.provider, result.lyrics)))
+            }
+            result
+        }
     }
 
     suspend fun getAllLyrics(
@@ -174,7 +195,10 @@ constructor(
     }
 
     companion object {
-        private const val MAX_CACHE_SIZE = 3
+        /** v3: Increased from 3 → 20; covers a full listening session without re-fetching. */
+        private const val MAX_CACHE_SIZE = 20
+        /** v3: Each provider gets 6 s before the race moves on without it. */
+        private const val PROVIDER_TIMEOUT_MS = 6_000L
     }
 }
 

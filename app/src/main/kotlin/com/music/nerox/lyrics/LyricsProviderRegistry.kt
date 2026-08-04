@@ -36,12 +36,16 @@ object LyricsProviderRegistry {
     fun serializeProviderOrder(providers: List<String>): String =
         providers.filter { it in providerNames }.joinToString(",")
 
+    // v3: Order tuned for speed + accuracy.
+    // LrcLib and BetterLyrics are fastest and most reliable for synced lyrics.
+    // Paxsenix and SimpMusic are strong fallbacks.
+    // YouTube providers are last-resort (slower, less structured).
     fun getDefaultProviderOrder(): List<String> = listOf(
-        "YouLyPlus",
-        "Paxsenix",
-        "BetterLyrics",
-        "SimpMusic",
         "LrcLib",
+        "BetterLyrics",
+        "Paxsenix",
+        "SimpMusic",
+        "YouLyPlus",
         "Kugou",
         "YouTubeSubtitle",
         "YouTubeMusic",

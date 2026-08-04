@@ -138,6 +138,7 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Speaker
 import kotlin.math.absoluteValue
 import com.music.nerox.ui.component.Icon as MIcon
+import com.music.nerox.ui.component.liquidGlass
 
 /**
  * Stable wrapper for progress state - reads values only during draw phase
@@ -154,40 +155,7 @@ class ProgressState(
             return if (duration > 0) (positionState.longValue.toFloat() / duration).coerceIn(0f, 1f) else 0f
         }
 
-        private fun Modifier.liquidGlassSurface(
-            baseColor: Color,
-            shape: RoundedCornerShape
-        ): Modifier = this
-            .clip(shape)
-            .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.20f),
-                        baseColor.copy(alpha = 0.82f),
-                        baseColor.copy(alpha = 0.68f)
-                    ),
-                    start = Offset.Zero,
-                    end = Offset(1200f, 1200f)
-                )
-            )
-            .drawWithCache {
-                val glossTopRight = Brush.radialGradient(
-                    colors = listOf(Color.White.copy(alpha = 0.18f), Color.Transparent),
-                    center = Offset(size.width * 0.85f, size.height * 0.1f),
-                    radius = size.maxDimension * 0.8f
-                )
-                val glossBottomLeft = Brush.radialGradient(
-                    colors = listOf(Color.White.copy(alpha = 0.10f), Color.Transparent),
-                    center = Offset(size.width * 0.15f, size.height * 0.9f),
-                    radius = size.maxDimension * 0.6f
-                )
-                onDrawWithContent {
-                    drawContent()
-                    drawRect(glossTopRight)
-                    drawRect(glossBottomLeft)
-                }
-            }
-            .border(1.dp, Color.White.copy(alpha = 0.24f), shape)
+        // v3: liquidGlassSurface replaced by the unified liquidGlass() modifier from LiquidGlass.kt
 }
 
 @Composable
@@ -377,9 +345,9 @@ private fun NewMiniPlayer(
                 .then(if (isTabletLandscape) Modifier.width(500.dp).align(Alignment.Center) else Modifier.fillMaxWidth())
                 .height(64.dp)
                 .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
-                .liquidGlassSurface(
+                .liquidGlass(
+                    shape = glassShape,
                     baseColor = backgroundColor,
-                    shape = glassShape
                 )
         ) {
             // Background Layers

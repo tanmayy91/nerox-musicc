@@ -44,8 +44,8 @@ android {
         applicationId = "com.nerox.neroxmusic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 71
-        versionName = "6.0.2"
+        versionCode = 72
+        versionName = "7.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
