@@ -6,7 +6,7 @@
 package com.music.nerox.listentogether
 
 import com.google.protobuf.MessageLite
-import com.music.nerox.listentogether.proto.Listentogether
+import com.music.nerox.proto.Listentogether
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.io.ByteArrayInputStream
