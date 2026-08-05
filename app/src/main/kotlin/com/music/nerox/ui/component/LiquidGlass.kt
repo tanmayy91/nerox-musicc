@@ -21,6 +21,8 @@
  */
 package com.music.nerox.ui.component
 
+import android.graphics.Paint
+import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.LinearEasing
@@ -31,15 +33,12 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -47,21 +46,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 
-// ─── AGSL Shader Source ───────────────────────────────────────────────────────
-
-/**
- * AGSL program for liquid glass surface rendering.
- * Uniforms:
- *   resolution         — viewport size in px
- *   time               — monotonically increasing float (seconds × scale)
- *   baseColor          — primary tint (ARGB)
- *   accentColor        — secondary tint for gradient variation
- *   refractionStrength — 0..1 dial for how much the lens distorts (default 1)
- */
 private val LIQUID_GLASS_AGSL = """
     uniform float2 resolution;
     uniform float  time;
@@ -69,7 +57,6 @@ private val LIQUID_GLASS_AGSL = """
     uniform float4 accentColor;
     uniform float  refractionStrength;
 
-    // ── Smooth noise helpers ──────────────────────────────────────────────────
     float hash(float2 p) {
         return fract(sin(dot(p, float2(127.1031, 311.7137))) * 43758.5453123);
     }
@@ -83,7 +70,6 @@ private val LIQUID_GLASS_AGSL = """
             u.y
         );
     }
-    // Fractal noise: stacks two octaves for richer organic movement
     float fbm(float2 p) {
         return smoothNoise(p) * 0.6 + smoothNoise(p * 2.1 + float2(1.7, 9.2)) * 0.4;
     }
@@ -95,79 +81,49 @@ private val LIQUID_GLASS_AGSL = """
         float  dist   = length(delta);
         float2 dir    = normalize(delta + 0.00001);
 
-        // ── 1. Lens refraction ────────────────────────────────────────────────
-        // A plano-convex lens profile: strongest at centre, falls off to edges.
+        // 1. Lens refraction
         float lensProfile = (1.0 - smoothstep(0.0, 0.70, dist)) * refractionStrength;
         float2 refracted  = uv - delta * lensProfile * 0.055;
 
-        // ── 2. Liquid ripple (time-varying) ───────────────────────────────────
-        // Sinusoidal wave propagating outward — gives the "liquid" quality.
+        // 2. Liquid ripple
         float  wave   = sin(dist * 10.0 - time * 2.2) * cos(dist * 6.5 + time * 1.4);
         refracted    += dir * wave * 0.009 * lensProfile;
 
-        // ── 3. Base glass tint (gradient derived from refracted UV) ───────────
+        // 3. Base glass tint
         float  blend   = smoothstep(0.15, 0.85, refracted.x * 0.55 + refracted.y * 0.45);
         float4 tint    = mix(accentColor, baseColor, blend);
 
-        // ── 4. Caustic light patterns ─────────────────────────────────────────
-        // Moving noise that mimics focussed light bouncing through glass.
+        // 4. Caustic light patterns
         float2 cUv    = uv * 4.2 + float2(time * 0.09, time * 0.06);
         float  cUv2   = uv.x * 3.1 - time * 0.07;
         float  caustic = fbm(cUv) * fbm(float2(cUv2, uv.y * 3.8 + time * 0.04));
         float  cMask   = smoothstep(0.38, 0.72, caustic) * lensProfile;
 
-        // ── 5. Fresnel edge brightening ───────────────────────────────────────
-        // Real glass is visually brighter at grazing (oblique) angles.
+        // 5. Fresnel edge glow
         float  fresnel = pow(dist * 1.65, 2.8);
         float  edge    = smoothstep(0.25, 0.52, dist) * fresnel * 0.28;
 
-        // ── 6. Specular highlight (top-left point light) ──────────────────────
-        // Animated micro-normals give the surface a living, rippled quality.
+        // 6. Specular highlight
         float  nOffset = smoothNoise(uv * 5.0 + time * 0.12);
-        float2 normal  = normalize(delta + float2(nOffset * 0.18 - 0.09,
-                                                   nOffset * 0.18 - 0.09));
+        float2 normal  = normalize(delta + float2(nOffset * 0.18 - 0.09, nOffset * 0.18 - 0.09));
         float2 lightDir = normalize(float2(-0.58, -0.82));
         float  spec     = pow(max(0.0, dot(-lightDir, normal)), 9.0);
         float  specMask = spec * (1.0 - smoothstep(0.28, 0.48, dist)) * 0.20;
 
-        // ── 7. Chromatic aberration ────────────────────────────────────────────
-        // Wavelength-dependent refraction — split RGB channels toward the edge.
+        // 7. Chromatic aberration
         float  aber    = dist * dist * 0.030;
-        // R channel shifted outward, B channel shifted inward
         float  rShift  = tint.r + aber * 0.10;
         float  bShift  = tint.b - aber * 0.07;
 
-        // ── Compose final colour ──────────────────────────────────────────────
         half4 col;
         col.r = half(clamp(rShift   + edge + specMask + cMask * 0.10, 0.0, 1.0));
         col.g = half(clamp(tint.g   + edge + specMask + cMask * 0.10, 0.0, 1.0));
         col.b = half(clamp(bShift   + edge + specMask + cMask * 0.10, 0.0, 1.0));
-
-        // Alpha: slightly more opaque toward edges (thicker glass rim)
         col.a = half(mix(tint.a * 0.72, tint.a * 0.92, smoothstep(0.0, 0.50, dist)));
-
         return col;
     }
 """.trimIndent()
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-/**
- * Applies a real-time liquid glass surface to any composable.
- *
- * Usage:
- * ```kotlin
- * Box(
- *     modifier = Modifier
- *         .fillMaxWidth()
- *         .liquidGlass(shape = RoundedCornerShape(28.dp))
- * ) { … }
- * ```
- *
- * @param shape              Clip shape for the glass surface
- * @param baseColor          Primary tint colour; defaults to surface colour
- * @param refractionStrength 0f = flat (no lens distortion), 1f = full effect
- */
 @Composable
 fun Modifier.liquidGlass(
     shape: Shape = RoundedCornerShape(24.dp),
@@ -184,8 +140,6 @@ fun Modifier.liquidGlass(
         liquidGlassFallback(shape, baseColor)
 }
 
-// ─── API-33 tier: full AGSL liquid glass ─────────────────────────────────────
-
 @Composable
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 private fun Modifier.liquidGlassAGSL(
@@ -193,41 +147,40 @@ private fun Modifier.liquidGlassAGSL(
     baseColor: Color,
     refractionStrength: Float,
 ): Modifier {
-    // Time uniform — drives ripple, caustic, and specular animation
     val infiniteTransition = rememberInfiniteTransition(label = "liquidGlass")
     val time by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 628.318f,          // 2π × 100 — full cycle before wrap
+        targetValue = 628.318f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 90_000, easing = LinearEasing),
+            animation = tween(durationMillis = 60_000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "glassTime"
     )
 
-    // Shader is stateless; recreating it each recomposition is cheap because
-    // the JNI object is pooled by the runtime.
-    val accentColor = baseColor.copy(
-        red   = (baseColor.red   * 0.75f).coerceIn(0f, 1f),
-        green = (baseColor.green * 0.75f).coerceIn(0f, 1f),
-        blue  = (baseColor.blue  * 0.85f).coerceIn(0f, 1f),
-        alpha = (baseColor.alpha * 0.55f).coerceIn(0f, 1f),
-    )
+    val runtimeShader = remember { RuntimeShader(LIQUID_GLASS_AGSL) }
+    val nativePaint = remember { Paint().apply { isAntiAlias = true } }
+
+    val accentColor = remember(baseColor) {
+        baseColor.copy(
+            red = (baseColor.red * 0.75f).coerceIn(0f, 1f),
+            green = (baseColor.green * 0.75f).coerceIn(0f, 1f),
+            blue = (baseColor.blue * 0.85f).coerceIn(0f, 1f),
+            alpha = (baseColor.alpha * 0.55f).coerceIn(0f, 1f),
+        )
+    }
 
     return this
-        .clip(shape)
-        // Draw the animated AGSL shader as the composable's background
+        .graphicsLayer {
+            this.shape = shape
+            this.clip = true
+        }
         .drawWithCache {
-            val runtimeShader = android.graphics.RuntimeShader(LIQUID_GLASS_AGSL)
-            val nativePaint   = android.graphics.Paint().apply {
-                isAntiAlias = true
-                shader       = runtimeShader
-            }
+            nativePaint.shader = runtimeShader
 
-            onDrawWithContent {
-                // Set per-frame uniforms
-                runtimeShader.setFloatUniform("resolution",         size.width, size.height)
-                runtimeShader.setFloatUniform("time",               time)
+            onDrawBehind {
+                runtimeShader.setFloatUniform("resolution", size.width, size.height)
+                runtimeShader.setFloatUniform("time", time)
                 runtimeShader.setFloatUniform("refractionStrength", refractionStrength)
                 runtimeShader.setFloatUniform(
                     "baseColor",
@@ -236,7 +189,6 @@ private fun Modifier.liquidGlassAGSL(
                     baseColor.blue,
                     baseColor.alpha
                 )
-
                 runtimeShader.setFloatUniform(
                     "accentColor",
                     accentColor.red,
@@ -245,19 +197,14 @@ private fun Modifier.liquidGlassAGSL(
                     accentColor.alpha
                 )
 
-                // Draw shader across the full composable bounds
                 drawIntoCanvas { canvas ->
                     canvas.nativeCanvas.drawRect(
                         0f, 0f, size.width, size.height,
                         nativePaint
                     )
                 }
-
-                // Draw the actual composable content on top
-                drawContent()
             }
         }
-        // Glass border — gradient sheen catches the virtual light direction
         .border(
             width = 1.dp,
             brush = Brush.linearGradient(
@@ -271,8 +218,6 @@ private fun Modifier.liquidGlassAGSL(
             shape = shape,
         )
 }
-
-// ─── API-31/32 tier: RenderEffect blur + enhanced surface ────────────────────
 
 @Composable
 @RequiresApi(Build.VERSION_CODES.S)
@@ -289,24 +234,24 @@ private fun Modifier.liquidGlassRenderEffect(
                 baseColor.copy(alpha = 0.58f),
             ),
             start = Offset.Zero,
-            end   = Offset(1600f, 1600f)
+            end = Offset(1600f, 1600f)
         )
     )
     .drawWithCache {
         val shimmer = Brush.radialGradient(
-            colors   = listOf(Color.White.copy(alpha = 0.20f), Color.Transparent),
-            center   = Offset(size.width * 0.82f, size.height * 0.08f),
-            radius   = size.maxDimension * 0.95f
+            colors = listOf(Color.White.copy(alpha = 0.20f), Color.Transparent),
+            center = Offset(size.width * 0.82f, size.height * 0.08f),
+            radius = size.maxDimension * 0.95f
         )
         val causticGlow = Brush.radialGradient(
-            colors   = listOf(Color.White.copy(alpha = 0.12f), Color.Transparent),
-            center   = Offset(size.width * 0.18f, size.height * 0.90f),
-            radius   = size.maxDimension * 0.70f
+            colors = listOf(Color.White.copy(alpha = 0.12f), Color.Transparent),
+            center = Offset(size.width * 0.18f, size.height * 0.90f),
+            radius = size.maxDimension * 0.70f
         )
         onDrawWithContent {
-            drawContent()
             drawRect(shimmer)
             drawRect(causticGlow)
+            drawContent()
         }
     }
     .border(
@@ -320,8 +265,6 @@ private fun Modifier.liquidGlassRenderEffect(
         ),
         shape = shape,
     )
-
-// ─── Fallback tier: polished gradient glass ───────────────────────────────────
 
 @Composable
 private fun Modifier.liquidGlassFallback(
@@ -337,7 +280,7 @@ private fun Modifier.liquidGlassFallback(
                 baseColor.copy(alpha = 0.64f),
             ),
             start = Offset.Zero,
-            end   = Offset(1400f, 1400f)
+            end = Offset(1400f, 1400f)
         )
     )
     .drawWithCache {
@@ -352,9 +295,9 @@ private fun Modifier.liquidGlassFallback(
             radius = size.maxDimension * 0.70f
         )
         onDrawWithContent {
-            drawContent()
             drawRect(glossTop)
             drawRect(glossBottom)
+            drawContent()
         }
     }
     .border(1.dp, Color.White.copy(alpha = 0.20f), shape)
