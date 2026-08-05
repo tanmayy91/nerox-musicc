@@ -1,22 +1,6 @@
 /**
  * Nerox Music v3 — Real-time Liquid Glass
  *
- * This is genuine per-frame GPU rendering via AGSL (Android Graphics Shading Language),
- * NOT glassmorphism (which is just blur + transparency).
- *
- * The shader physically simulates:
- *  • Lens refraction    — pixels are displaced as light bends through curved glass
- *  • Animated ripple    — sinusoidal liquid movement changes the refraction each frame
- *  • Caustic patterns   — moving bright patches caused by focused light through glass
- *  • Fresnel edge glow  — glass brightens at oblique angles (physically accurate)
- *  • Specular highlight — single-bounce specular from a virtual point light
- *  • Chromatic aberration — RGB wavelengths split at edges, like a real lens
- *
- * Tier system:
- *  • API 33+ (Android 13): Full AGSL RuntimeShader + RenderEffect blur
- *  • API 31–32 (Android 12): RenderEffect blur + enhanced gradient surface
- *  • API < 31: High-quality gradient fallback (no AGSL available)
- *
  * Licensed under GPL-3.0 | See git history for contributors
  */
 package com.music.nerox.ui.component
@@ -50,13 +34,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.dp
 
+// ─── Fixed AGSL Shader Source ─────────────────────────────────────────────────
+
 private val LIQUID_GLASS_AGSL = """
     uniform float2 resolution;
     uniform float  time;
     uniform float4 baseColor;
-    uniform float4 accentColor;
     uniform float  refractionStrength;
 
+    // Smooth noise helper for fluid movement
     float hash(float2 p) {
         return fract(sin(dot(p, float2(127.1031, 311.7137))) * 43758.5453123);
     }
@@ -70,59 +56,36 @@ private val LIQUID_GLASS_AGSL = """
             u.y
         );
     }
-    float fbm(float2 p) {
-        return smoothNoise(p) * 0.6 + smoothNoise(p * 2.1 + float2(1.7, 9.2)) * 0.4;
-    }
 
     half4 main(float2 fragCoord) {
-        float2 uv     = fragCoord / resolution;
-        float2 center = float2(0.5, 0.5);
-        float2 delta  = uv - center;
-        float  dist   = length(delta);
-        float2 dir    = normalize(delta + 0.00001);
+        float2 uv = fragCoord / resolution;
 
-        // 1. Lens refraction
-        float lensProfile = (1.0 - smoothstep(0.0, 0.70, dist)) * refractionStrength;
-        float2 refracted  = uv - delta * lensProfile * 0.055;
+        // 1. Fluid, continuous wave displacement across coordinates (No center pinch point)
+        float wave1 = sin(uv.x * 6.0 + time * 1.2) * cos(uv.y * 6.0 + time * 0.8);
+        float wave2 = cos(uv.x * 12.0 - time * 1.5) * sin(uv.y * 10.0 + time * 1.1);
+        float noise = smoothNoise(uv * 4.0 + time * 0.2);
 
-        // 2. Liquid ripple
-        float  wave   = sin(dist * 10.0 - time * 2.2) * cos(dist * 6.5 + time * 1.4);
-        refracted    += dir * wave * 0.009 * lensProfile;
+        float totalRipple = (wave1 + wave2 * 0.5 + noise * 0.3) * 0.012 * refractionStrength;
 
-        // 3. Base glass tint
-        float  blend   = smoothstep(0.15, 0.85, refracted.x * 0.55 + refracted.y * 0.45);
-        float4 tint    = mix(accentColor, baseColor, blend);
+        // 2. Uniform, subtle glass refraction tint
+        float blend = smoothstep(0.0, 1.0, uv.y + totalRipple);
+        float4 tinted = mix(baseColor * 0.9, baseColor * 1.1, blend);
 
-        // 4. Caustic light patterns
-        float2 cUv    = uv * 4.2 + float2(time * 0.09, time * 0.06);
-        float  cUv2   = uv.x * 3.1 - time * 0.07;
-        float  caustic = fbm(cUv) * fbm(float2(cUv2, uv.y * 3.8 + time * 0.04));
-        float  cMask   = smoothstep(0.38, 0.72, caustic) * lensProfile;
-
-        // 5. Fresnel edge glow
-        float  fresnel = pow(dist * 1.65, 2.8);
-        float  edge    = smoothstep(0.25, 0.52, dist) * fresnel * 0.28;
-
-        // 6. Specular highlight
-        float  nOffset = smoothNoise(uv * 5.0 + time * 0.12);
-        float2 normal  = normalize(delta + float2(nOffset * 0.18 - 0.09, nOffset * 0.18 - 0.09));
-        float2 lightDir = normalize(float2(-0.58, -0.82));
-        float  spec     = pow(max(0.0, dot(-lightDir, normal)), 9.0);
-        float  specMask = spec * (1.0 - smoothstep(0.28, 0.48, dist)) * 0.20;
-
-        // 7. Chromatic aberration
-        float  aber    = dist * dist * 0.030;
-        float  rShift  = tint.r + aber * 0.10;
-        float  bShift  = tint.b - aber * 0.07;
+        // 3. Ultra-soft rim sheen (No dark vignetting or glaring white streaks)
+        float edgeDist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+        float rimGlow = (1.0 - smoothstep(0.0, 0.08, edgeDist)) * 0.08;
 
         half4 col;
-        col.r = half(clamp(rShift   + edge + specMask + cMask * 0.10, 0.0, 1.0));
-        col.g = half(clamp(tint.g   + edge + specMask + cMask * 0.10, 0.0, 1.0));
-        col.b = half(clamp(bShift   + edge + specMask + cMask * 0.10, 0.0, 1.0));
-        col.a = half(mix(tint.a * 0.72, tint.a * 0.92, smoothstep(0.0, 0.50, dist)));
+        col.r = half(clamp(tinted.r + rimGlow, 0.0, 1.0));
+        col.g = half(clamp(tinted.g + rimGlow, 0.0, 1.0));
+        col.b = half(clamp(tinted.b + rimGlow, 0.0, 1.0));
+        col.a = half(baseColor.a);
+
         return col;
     }
 """.trimIndent()
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 @Composable
 fun Modifier.liquidGlass(
@@ -139,6 +102,8 @@ fun Modifier.liquidGlass(
     else ->
         liquidGlassFallback(shape, baseColor)
 }
+
+// ─── API-33 tier: full AGSL liquid glass ─────────────────────────────────────
 
 @Composable
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
@@ -158,17 +123,9 @@ private fun Modifier.liquidGlassAGSL(
         label = "glassTime"
     )
 
+    // Re-use native allocations to preserve performance
     val runtimeShader = remember { RuntimeShader(LIQUID_GLASS_AGSL) }
     val nativePaint = remember { Paint().apply { isAntiAlias = true } }
-
-    val accentColor = remember(baseColor) {
-        baseColor.copy(
-            red = (baseColor.red * 0.75f).coerceIn(0f, 1f),
-            green = (baseColor.green * 0.75f).coerceIn(0f, 1f),
-            blue = (baseColor.blue * 0.85f).coerceIn(0f, 1f),
-            alpha = (baseColor.alpha * 0.55f).coerceIn(0f, 1f),
-        )
-    }
 
     return this
         .graphicsLayer {
@@ -189,13 +146,6 @@ private fun Modifier.liquidGlassAGSL(
                     baseColor.blue,
                     baseColor.alpha
                 )
-                runtimeShader.setFloatUniform(
-                    "accentColor",
-                    accentColor.red,
-                    accentColor.green,
-                    accentColor.blue,
-                    accentColor.alpha
-                )
 
                 drawIntoCanvas { canvas ->
                     canvas.nativeCanvas.drawRect(
@@ -207,17 +157,17 @@ private fun Modifier.liquidGlassAGSL(
         }
         .border(
             width = 1.dp,
-            brush = Brush.linearGradient(
-                colorStops = arrayOf(
-                    0.00f to Color.White.copy(alpha = 0.45f),
-                    0.35f to Color.White.copy(alpha = 0.10f),
-                    0.65f to Color.White.copy(alpha = 0.18f),
-                    1.00f to Color.White.copy(alpha = 0.35f),
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.20f),
+                    Color.White.copy(alpha = 0.05f),
                 )
             ),
             shape = shape,
         )
 }
+
+// ─── API-31/32 tier: Enhanced surface ─────────────────────────────────────────
 
 @Composable
 @RequiresApi(Build.VERSION_CODES.S)
@@ -229,42 +179,25 @@ private fun Modifier.liquidGlassRenderEffect(
     .background(
         brush = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.26f),
-                baseColor.copy(alpha = 0.78f),
-                baseColor.copy(alpha = 0.58f),
+                baseColor.copy(alpha = 0.85f),
+                baseColor.copy(alpha = 0.65f),
             ),
             start = Offset.Zero,
             end = Offset(1600f, 1600f)
         )
     )
-    .drawWithCache {
-        val shimmer = Brush.radialGradient(
-            colors = listOf(Color.White.copy(alpha = 0.20f), Color.Transparent),
-            center = Offset(size.width * 0.82f, size.height * 0.08f),
-            radius = size.maxDimension * 0.95f
-        )
-        val causticGlow = Brush.radialGradient(
-            colors = listOf(Color.White.copy(alpha = 0.12f), Color.Transparent),
-            center = Offset(size.width * 0.18f, size.height * 0.90f),
-            radius = size.maxDimension * 0.70f
-        )
-        onDrawWithContent {
-            drawRect(shimmer)
-            drawRect(causticGlow)
-            drawContent()
-        }
-    }
     .border(
         width = 1.dp,
-        brush = Brush.linearGradient(
+        brush = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.32f),
-                Color.White.copy(alpha = 0.08f),
                 Color.White.copy(alpha = 0.20f),
+                Color.White.copy(alpha = 0.05f),
             )
         ),
         shape = shape,
     )
+
+// ─── Fallback tier: polished gradient glass ───────────────────────────────────
 
 @Composable
 private fun Modifier.liquidGlassFallback(
@@ -272,32 +205,10 @@ private fun Modifier.liquidGlassFallback(
     baseColor: Color,
 ): Modifier = this
     .clip(shape)
-    .background(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.22f),
-                baseColor.copy(alpha = 0.82f),
-                baseColor.copy(alpha = 0.64f),
-            ),
-            start = Offset.Zero,
-            end = Offset(1400f, 1400f)
-        )
+    .background(baseColor.copy(alpha = 0.75f))
+    .border(
+        width = 1.dp,
+        color = Color.White.copy(alpha = 0.15f),
+        shape = shape
     )
-    .drawWithCache {
-        val glossTop = Brush.radialGradient(
-            colors = listOf(Color.White.copy(alpha = 0.16f), Color.Transparent),
-            center = Offset(size.width * 0.85f, size.height * 0.10f),
-            radius = size.maxDimension * 0.90f
-        )
-        val glossBottom = Brush.radialGradient(
-            colors = listOf(Color.White.copy(alpha = 0.09f), Color.Transparent),
-            center = Offset(size.width * 0.18f, size.height * 0.92f),
-            radius = size.maxDimension * 0.70f
-        )
-        onDrawWithContent {
-            drawRect(glossTop)
-            drawRect(glossBottom)
-            drawContent()
-        }
-    }
-    .border(1.dp, Color.White.copy(alpha = 0.20f), shape)
+    
