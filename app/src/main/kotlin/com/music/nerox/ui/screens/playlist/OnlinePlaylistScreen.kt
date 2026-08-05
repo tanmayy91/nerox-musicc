@@ -92,7 +92,7 @@ import androidx.compose.ui.util.fastForEachReversed
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn

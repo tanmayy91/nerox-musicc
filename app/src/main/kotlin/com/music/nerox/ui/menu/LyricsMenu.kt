@@ -58,7 +58,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.music.nerox.LocalDatabase
 import com.music.nerox.R
 import com.music.nerox.db.entities.LyricsEntity
@@ -82,7 +82,6 @@ import com.music.nerox.constants.OpenRouterModelKey
 import com.music.nerox.constants.DeeplFormalityKey
 import com.music.nerox.lyrics.LyricsTranslationHelper
 import com.music.nerox.utils.rememberPreference
-import androidx.compose.runtime.collectAsState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
