@@ -229,8 +229,21 @@ private fun Modifier.liquidGlassAGSL(
                 runtimeShader.setFloatUniform("resolution",         size.width, size.height)
                 runtimeShader.setFloatUniform("time",               time)
                 runtimeShader.setFloatUniform("refractionStrength", refractionStrength)
-                runtimeShader.setColorUniform("baseColor",          baseColor.toArgb())
-                runtimeShader.setColorUniform("accentColor",        accentColor.toArgb())
+                runtimeShader.setFloatUniform(
+                    "baseColor",
+                    baseColor.red,
+                    baseColor.green,
+                    baseColor.blue,
+                    baseColor.alpha
+                )
+
+                runtimeShader.setFloatUniform(
+                    "accentColor",
+                    accentColor.red,
+                    accentColor.green,
+                    accentColor.blue,
+                    accentColor.alpha
+                )
 
                 // Draw shader across the full composable bounds
                 drawIntoCanvas { canvas ->
