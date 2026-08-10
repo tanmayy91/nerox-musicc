@@ -127,7 +127,7 @@ fun TopSearch(
             },
             modifier = Modifier
                 .padding(horizontal = 8.dp, vertical = 6.dp)
-                .liquidGlass(
+                .standardGlass(
                     shape = RoundedCornerShape(24.dp),
                     baseColor = MaterialTheme.colorScheme.surfaceContainerLow
                 ),

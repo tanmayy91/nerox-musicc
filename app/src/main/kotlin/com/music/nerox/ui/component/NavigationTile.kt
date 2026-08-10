@@ -42,7 +42,7 @@ fun NavigationTile(
             modifier =
             Modifier
                 .size(56.dp)
-                .liquidGlass(
+                .standardGlass(
                     shape = CircleShape,
                     baseColor = MaterialTheme.colorScheme.surfaceContainer
                 )

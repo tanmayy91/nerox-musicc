@@ -61,7 +61,7 @@ fun PreferenceEntry(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
         modifier
-            .liquidGlass(
+            .standardGlass(
                 shape = RoundedCornerShape(20.dp),
                 baseColor = MaterialTheme.colorScheme.surfaceContainerLow
             )

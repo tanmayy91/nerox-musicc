@@ -139,7 +139,7 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Speaker
 import kotlin.math.absoluteValue
 import com.music.nerox.ui.component.Icon as MIcon
-import com.music.nerox.ui.component.liquidGlass
+import com.music.nerox.ui.component.standardGlass
 
 /**
  * Stable wrapper for progress state - reads values only during draw phase
@@ -156,7 +156,6 @@ class ProgressState(
             return if (duration > 0) (positionState.longValue.toFloat() / duration).coerceIn(0f, 1f) else 0f
         }
 
-        // v3: liquidGlassSurface replaced by the unified liquidGlass() modifier from LiquidGlass.kt
 }
 
 @Composable
@@ -346,7 +345,7 @@ private fun NewMiniPlayer(
                 .then(if (isTabletLandscape) Modifier.width(500.dp).align(Alignment.Center) else Modifier.fillMaxWidth())
                 .height(64.dp)
                 .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
-                .liquidGlass(
+                .standardGlass(
                     shape = glassShape,
                     baseColor = backgroundColor,
                 )

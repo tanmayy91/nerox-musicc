@@ -69,7 +69,7 @@ fun AppNavigationRail(
     val viewConfiguration = LocalViewConfiguration.current
     
     NavigationRail(
-        modifier = modifier.liquidGlass(
+        modifier = modifier.standardGlass(
             shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
             baseColor = containerColor
         ),
@@ -158,7 +158,7 @@ fun AppNavigationBar(
     )
 
     NavigationBar(
-        modifier = modifier.liquidGlass(
+        modifier = modifier.standardGlass(
             shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             baseColor = containerColor
         ),

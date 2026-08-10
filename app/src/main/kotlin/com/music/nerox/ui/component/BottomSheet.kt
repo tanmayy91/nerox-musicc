@@ -79,7 +79,7 @@ fun BottomSheet(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .liquidGlass(
+            .standardGlass(
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                 baseColor = MaterialTheme.colorScheme.surfaceContainer
             )

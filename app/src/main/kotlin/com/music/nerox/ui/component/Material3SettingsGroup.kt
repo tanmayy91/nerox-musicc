@@ -78,7 +78,7 @@ fun Material3SettingsGroup(
                     modifier = Modifier
                         .fillMaxWidth()
                         .animateContentSize()
-                        .liquidGlass(
+                        .standardGlass(
                             shape = shape,
                             baseColor = MaterialTheme.colorScheme.surfaceVariant
                         ),
